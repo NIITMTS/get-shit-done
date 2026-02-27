@@ -42,17 +42,6 @@ Modify GSD's orchestrator commands to dynamically route tasks to specialized age
     - Completion Criteria: `templates/config.json` contains `"agents": {}` as a top-level key. File is valid JSON. Existing keys unchanged. Sibling file `config-agents-example.json` exists with full example.
     - Tests: Parse the updated JSON with `JSON.parse()` or `python -m json.tool` to confirm validity. Confirm all existing keys (`mode`, `depth`, `parallelization`, `gates`, `safety`) still present and unchanged. Confirm `agents` key exists and is an empty object. Confirm `config-agents-example.json` exists and is valid JSON with `execution` and `verification` examples.
 
-  - [ ] Task 1.2: Add optional agents frontmatter field to phase-prompt.md
-    - File: `get-shit-done/templates/phase-prompt.md`
-    - Current state: Frontmatter spec includes `phase`, `plan`, `type`, `wave`, `depends_on`, `files_modified`, `autonomous`, `domain`. No agents field.
-    - Change: Add `agents: []` as an optional frontmatter field in three places:
-      1. The File Template section (line ~14 area) -- add `agents: []` with comment `# Optional: override config.json agent pool for this plan`
-      2. The Frontmatter Fields table (line ~122 area) -- add row: `agents | No | Array of agent names to use for this plan (overrides config.json) |`
-      3. The YAML examples in Parallel vs Sequential section -- add `agents: []` to at least one example to show usage
-    - Purpose: This enables the planner (or user) to specify per-plan agent overrides. When populated, this takes priority over config.json agents but is overridden by user prompt.
-    - Completion Criteria: phase-prompt.md frontmatter spec includes `agents` as an optional field. Field is documented in the frontmatter table. At least one example shows the field.
-    - Tests: Read the updated file. Confirm `agents` appears in the template frontmatter, the fields table, and at least one example. Confirm all existing frontmatter fields are unchanged.
-
 ## Future Tasks
 
 - [ ] Group 2: Template Updates -- Remove Hardcoded References & Add Verification Template
@@ -76,9 +65,8 @@ Modify GSD's orchestrator commands to dynamically route tasks to specialized age
       ```
       Agent resolution (highest to lowest priority):
       1. User prompt override (per-invocation)
-      2. Plan frontmatter `agents:` field (per-plan)
-      3. `.planning/config.json` agents.execution pool (per-project)
-      4. Fallback: "general-purpose"
+      2. `.planning/config.json` agents.execution pool (per-project)
+      3. Fallback: "general-purpose"
       ```
     - Do NOT change the Template section (the actual prompt content). Only change the Usage/documentation section.
     - Completion Criteria: No literal `"general-purpose"` string remains in the file. Usage section shows `resolved_agent` variable. Resolution chain is documented.
@@ -229,12 +217,11 @@ Modify GSD's orchestrator commands to dynamically route tasks to specialized age
       For each Task call, resolve agent type using this priority chain:
 
       1. **User prompt override:** If user specified an agent in the invocation (e.g., "use typescript-pro"), use it for all plans
-      2. **Plan frontmatter:** If plan has `agents: [...]` in frontmatter, use the first listed agent
-      3. **Config pool:** Read `.planning/config.json` → `agents.execution[]`:
+      2. **Config pool:** Read `.planning/config.json` → `agents.execution[]`:
          - One agent in list: use it for all plans
-         - Multiple agents in list: use first in list (plan frontmatter or user override should specify for multi-agent pools)
+         - Multiple agents in list: orchestrator picks the most appropriate agent based on task content and agent descriptions
          - Empty or missing: fallback
-      4. **Fallback:** "general-purpose"
+      3. **Fallback:** "general-purpose"
 
       Store resolved agent per plan before spawning wave.
       </agent_routing>
@@ -290,22 +277,18 @@ Modify GSD's orchestrator commands to dynamically route tasks to specialized age
       2. Check for user override:
          - If user specified agent in invocation: use for all plans, skip selection
 
-      3. For each plan, check frontmatter:
-         - If plan has `agents: [...]` field: use first agent in list
-         - If no agents field: proceed to config selection
-
-      4. Select from execution pool (deterministic, no guessing):
+      3. Select from execution pool (deterministic, no guessing):
          - One agent in `agents.execution[]`: use it
-         - Multiple agents: use first in list
+         - Multiple agents: orchestrator picks based on task content and agent descriptions
          - Empty or missing: fallback to "general-purpose"
 
-      5. Store agent assignment per plan for use in execute_waves step.
+      4. Store agent assignment per plan for use in execute_waves step.
          IMPORTANT: The resolved agent MUST be used for both initial spawn AND any continuation spawns for the same plan. If a plan pauses at a checkpoint and resumes, the continuation agent must use the SAME resolved agent as the original spawn.
 
       Report agent assignments:
       ```
       Agent assignments:
-        plan-01: org:typescript-pro (from frontmatter override)
+        plan-01: org:typescript-pro (from user override)
         plan-02: org:typescript-pro (from config, single agent)
         plan-03: general-purpose (no agents configured)
       ```
@@ -330,9 +313,8 @@ Modify GSD's orchestrator commands to dynamically route tasks to specialized age
       Resolve agent for this plan:
 
       1. User prompt override → use specified agent
-      2. Plan frontmatter `agents:` → use first listed agent
-      3. Config `agents.execution[]` → one agent: use it; multiple: use first in list
-      4. Fallback → "general-purpose"
+      2. Config `agents.execution[]` → one agent: use it; multiple: orchestrator picks based on task content and agent descriptions
+      3. Fallback → "general-purpose"
 
       Note: config.json is already in the context section (line 31). No change needed to context.
       ```
@@ -373,24 +355,21 @@ Modify GSD's orchestrator commands to dynamically route tasks to specialized age
       2. **Test single execution agent:**
          a. Add `"agents": { "execution": ["general-purpose"] }` to config.json
          b. Re-run and verify the Task call uses `"general-purpose"` from config (not fallback)
-      3. **Test plan frontmatter override:**
-         a. Add `agents: ["general-purpose"]` to a plan's frontmatter
-         b. Verify the frontmatter agent is used (priority 2 over config priority 3)
-      4. **Test verification wave (if verification agent configured):**
+      3. **Test verification wave (if verification agent configured):**
          a. Add `"verification": "general-purpose"` to agents config
          b. Run a phase and verify a verification agent is spawned after each wave
          c. Remove verification key, re-run, verify no verification spawn
-      5. **Test missing agents key gracefully:**
+      4. **Test missing agents key gracefully:**
          a. Remove the `agents` key entirely from config.json
          b. Verify no errors, fallback to "general-purpose"
     - Note: Use `"general-purpose"` as the test agent name to avoid dependency on custom agent definitions. The point is to test the routing logic, not custom agents.
-    - Completion Criteria: All 5 test scenarios pass. No regressions in existing functionality. Backwards compatibility confirmed.
+    - Completion Criteria: All 4 test scenarios pass. No regressions in existing functionality. Backwards compatibility confirmed.
     - Tests: Each scenario above is its own test. Document results with pass/fail for each.
 
 ## Dependencies
 
 - Group 0 (pre-flight) MUST pass before ANY other work begins -- if Task tool rejects custom subagent_type, the plan needs redesign
-- Group 1 (foundation) must be completed before any other group -- all routing logic references the config schema and frontmatter field defined here
+- Group 1 (foundation) must be completed before any other group -- all routing logic references the config schema defined here
 - Group 2 (templates) should be completed before Groups 4/5 -- commands reference updated templates
 - Task 2.3 (verify-prompt.md) must exist before Task 4.1 -- execute-phase references it in execution_context
 - Group 3 (new-project) depends on Group 1 -- writes agents to config using the defined schema
@@ -402,7 +381,7 @@ Recommended execution order: 0 > 1 > 2 > 3 > 4 > 5 > 6
 ## Notes
 
 - All file paths in this document are relative to the GSD installation root (`~/.claude/`). When executing tasks, use the actual installation path.
-- The `resolve_agent()` function described in tasks is pseudocode for the orchestrator's inline logic -- it is NOT a separate function to implement. The orchestrator reads config, checks frontmatter, and picks the agent type directly in the command prompt text.
+- The `resolve_agent()` function described in tasks is pseudocode for the orchestrator's inline logic -- it is NOT a separate function to implement. The orchestrator reads config, checks for user override, and picks the agent type directly in the command prompt text.
 - The agents section in config.json uses string agent names in the format `"org:agent-name"` which maps directly to Claude Code's custom agent system. The `subagent_type` parameter of the Task tool accepts these names.
 - `map-codebase` is intentionally excluded -- it uses Explore agents for read-only analysis, which is a fundamentally different use case than execution routing.
 - The verification wave is intentionally lightweight -- it spawns a single agent per wave, not per plan. The agent checks all plans completed in that wave.

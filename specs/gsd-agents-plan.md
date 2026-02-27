@@ -11,7 +11,7 @@ The change affects 2 commands that spawn subagents (`execute-phase`, `execute-pl
 ## Objectives
 
 - Replace all hardcoded `subagent_type="general-purpose"` references with dynamic agent resolution
-- Introduce a 4-level resolution chain: user prompt override > plan frontmatter > config.json agents section > fallback to "general-purpose"
+- Introduce a 3-level resolution chain: user prompt override > config.json agents section > fallback to "general-purpose"
 - Add optional verification wave after each execution wave
 - Maintain full backwards compatibility: projects without an `agents` key in config.json behave identically to today
 
@@ -20,7 +20,6 @@ The change affects 2 commands that spawn subagents (`execute-phase`, `execute-pl
 ### In Scope
 
 - Adding `agents` section to `templates/config.json` (empty by default)
-- Adding optional `agents` frontmatter field to the phase-prompt template spec
 - Removing hardcoded `subagent_type="general-purpose"` from template documentation (subagent-task-prompt.md, continuation-prompt.md)
 - Creating a new `templates/verify-prompt.md` verification agent template
 - Adding an optional agent-configuration step to `new-project.md`
@@ -50,17 +49,11 @@ Priority 1: User prompt override (per-invocation)
     "use typescript-pro for this phase"
     -> Orchestrator honors explicit user instruction
 
-Priority 2: Plan frontmatter agents field (per-plan)
-    ---
-    agents: ["org:specific-agent"]
-    ---
-    -> Set by planner agent or user, specific to one plan
-
-Priority 3: .planning/config.json agents section (per-project)
+Priority 2: .planning/config.json agents section (per-project)
     "agents": { "execution": ["org:agent-a"] }
-    -> If one agent: use it for all plans. If multiple: use first in list.
+    -> If one agent: use it for all plans. If multiple: orchestrator picks the most appropriate agent for each task based on task content and agent descriptions.
 
-Priority 4: Fallback
+Priority 3: Fallback
     -> "general-purpose" (current behavior, always available)
 ```
 
@@ -69,10 +62,10 @@ Priority 4: Fallback
 When the orchestrator has execution agents in the pool, selection is deterministic with no guessing:
 
 1. If `agents.execution` has exactly one agent: use it for all plans
-2. If `agents.execution` has multiple agents: the plan's `agents:` frontmatter field or user override MUST specify which one. If neither is present, use the first agent in the execution list.
+2. If `agents.execution` has multiple agents: orchestrator picks the most appropriate agent for each task based on task content and agent descriptions. User override can explicitly specify an agent, which takes priority over orchestrator selection.
 3. If `agents.execution` is empty or missing: fallback to "general-purpose"
 
-No domain matching. No keyword heuristics. If users configure multiple execution agents, they explicitly map them per-plan via frontmatter. This keeps the orchestrator lean and eliminates fuzzy matching bugs.
+No domain matching. No keyword heuristics. The orchestrator picks from the configured pool based on task content. User prompt override always takes priority. This keeps the orchestrator lean and eliminates fuzzy matching bugs.
 
 ### Verification Flow
 
@@ -104,7 +97,6 @@ The orchestrator always reads `.planning/config.json` relative to the current wo
 | Agent name typo in config leads to Task tool error | Medium - plan execution fails | Orchestrator does not validate agent names. Task tool handles unknown types. Standard GSD failure handling (report, ask user) applies. Document this in config template comments. |
 | Routing logic adds too much orchestrator context | Medium - context budget exceeded | Keep routing to ~5 lines of pseudocode per command. No AI-based routing. No domain matching. Deterministic selection only. |
 | Backwards compatibility regression | High - breaks existing projects | Every routing path has explicit fallback to "general-purpose". No agents key = identical behavior to today. Test with both old and new config formats. |
-| Plan frontmatter agents field conflicts with config pool | Low - confusing but not breaking | Clear precedence: plan frontmatter wins over config. Document in agent_routing section. |
 | Verification wave adds unwanted overhead | Low - slows execution | Verification only runs when agents.verification is configured. Empty config = no verification wave. |
 | Task tool rejects custom subagent_type values | Critical - entire plan fails | Pre-flight verification task (Group 0) confirms this works before any file changes. |
 
@@ -113,7 +105,6 @@ The orchestrator always reads `.planning/config.json` relative to the current wo
 ### Internal Dependencies (within this change set)
 
 - Config template must be updated before any command changes (everything reads config)
-- Phase-prompt template agents field must be defined before execute commands reference it
 - verify-prompt.md must exist before execute-phase references it
 - Template cleanup (subagent-task-prompt, continuation-prompt) should happen before command changes for consistency
 
@@ -130,7 +121,7 @@ The orchestrator always reads `.planning/config.json` relative to the current wo
 - All 4 hardcoded references in workflow files are updated
 - A project with NO agents key in config.json behaves identically to today (backwards compatible)
 - A project WITH agents configured routes to the correct agent for each Task call
-- The resolution chain (user override > plan frontmatter > config > fallback) works correctly at each priority level
+- The resolution chain (user override > config > fallback) works correctly at each priority level
 - Verification wave runs when configured, skips when not
 - All changes are in existing GSD files (except the one new verify-prompt template)
 - No increase in orchestrator context budget beyond ~5% for routing logic
@@ -141,12 +132,11 @@ The orchestrator always reads `.planning/config.json` relative to the current wo
 | # | File | Type | Change Summary |
 |---|------|------|----------------|
 | 1 | `get-shit-done/templates/config.json` | Modify | Add `agents` section with empty defaults |
-| 2 | `get-shit-done/templates/phase-prompt.md` | Modify | Add optional `agents` frontmatter field |
-| 3 | `get-shit-done/templates/subagent-task-prompt.md` | Modify | Remove hardcoded `subagent_type="general-purpose"` |
-| 4 | `get-shit-done/templates/continuation-prompt.md` | Modify | Remove hardcoded `subagent_type="general-purpose"` |
-| 5 | `get-shit-done/templates/verify-prompt.md` | Create | New verification agent prompt template |
-| 6 | `commands/gsd/new-project.md` | Modify | Add optional agents setup step |
-| 7 | `commands/gsd/execute-phase.md` | Modify | Add routing and verification wave |
-| 8 | `get-shit-done/workflows/execute-phase.md` | Modify | Add routing step and verification step |
-| 9 | `commands/gsd/execute-plan.md` | Modify | Add routing to spawn step |
-| 10 | `get-shit-done/workflows/execute-plan.md` | Modify | Update spawn examples with routing |
+| 2 | `get-shit-done/templates/subagent-task-prompt.md` | Modify | Remove hardcoded `subagent_type="general-purpose"` |
+| 3 | `get-shit-done/templates/continuation-prompt.md` | Modify | Remove hardcoded `subagent_type="general-purpose"` |
+| 4 | `get-shit-done/templates/verify-prompt.md` | Create | New verification agent prompt template |
+| 5 | `commands/gsd/new-project.md` | Modify | Add optional agents setup step |
+| 6 | `commands/gsd/execute-phase.md` | Modify | Add routing and verification wave |
+| 7 | `get-shit-done/workflows/execute-phase.md` | Modify | Add routing step and verification step |
+| 8 | `commands/gsd/execute-plan.md` | Modify | Add routing to spawn step |
+| 9 | `get-shit-done/workflows/execute-plan.md` | Modify | Update spawn examples with routing |
