@@ -235,6 +235,33 @@ Report wave structure with context:
 The "What it builds" column comes from skimming plan names/objectives. Keep it brief (3-8 words).
 </step>
 
+<step name="resolve_agents">
+For each plan in each wave, determine the agent to use:
+
+1. Read `.planning/config.json` → parse `agents` section
+   - If `agents` key missing or empty: all plans use "gsd-executor" (default)
+   - If `agents.execution` exists and non-empty: proceed to selection
+
+2. Check for user override:
+   - If user specified agent in invocation: use for all plans, skip selection
+
+3. Select from execution pool (deterministic, no guessing):
+   - One agent in `agents.execution[]`: use it
+   - Multiple agents: orchestrator picks based on task content and agent descriptions
+   - Empty or missing: fallback to "gsd-executor"
+
+4. Store agent assignment per plan for use in execute_waves step.
+   IMPORTANT: The resolved agent MUST be used for both initial spawn AND any continuation spawns for the same plan. If a plan pauses at a checkpoint and resumes, the continuation agent must use the SAME resolved agent as the original spawn.
+
+Report agent assignments:
+```
+Agent assignments:
+  plan-01: org:typescript-pro (from user override)
+  plan-02: org:typescript-pro (from config, single agent)
+  plan-03: gsd-executor (default, no agents configured)
+```
+</step>
+
 <step name="execute_waves">
 Execute each wave in sequence. Autonomous plans within a wave run in parallel.
 
@@ -369,7 +396,7 @@ Plans with `autonomous: false` require user interaction.
 
 1. **Spawn agent for checkpoint plan:**
    ```
-   Task(prompt="{subagent-task-prompt}", subagent_type="gsd-executor", model="{executor_model}")
+   Task(prompt="{subagent-task-prompt}", subagent_type={resolved_agent_for_plan}, model="{executor_model}")
    ```
 
 2. **Agent runs until checkpoint:**
@@ -408,7 +435,7 @@ Plans with `autonomous: false` require user interaction.
    ```
    Task(
      prompt=filled_continuation_template,
-     subagent_type="gsd-executor",
+     subagent_type={resolved_agent_for_plan},
      model="{executor_model}"
    )
    ```
@@ -440,6 +467,29 @@ If a plan in a parallel wave has a checkpoint:
 - Present checkpoint to user
 - Spawn continuation agent with user response
 - Wait for all agents to finish before next wave
+</step>
+
+<step name="verify_wave">
+**After each execution wave completes (optional):**
+
+Check if `agents.verification` is configured in config.json.
+
+**If configured:**
+1. Read verify-prompt template from `~/.claude/get-shit-done/templates/verify-prompt.md`
+2. Fill placeholders: wave_number, phase_number, phase_name, phase_dir, completed_plan_list, summary_paths
+3. Spawn verification agent:
+   ```
+   Task(
+     prompt=filled_verify_template,
+     subagent_type=config.agents.verification,
+     model="{verifier_model}"
+   )
+   ```
+4. Read verification result:
+   - PASS: proceed to next wave
+   - FAIL: report issues to user, ask: "Fix and retry?" or "Continue anyway?" or "Stop execution?"
+
+**If NOT configured:** Skip verification, proceed to next wave (current behavior).
 </step>
 
 <step name="aggregate_results">

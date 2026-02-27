@@ -1,0 +1,10 @@
+{
+  "_comment": "Example of the agents section when fully populated. Copy the 'agents' key into your .planning/config.json.",
+  "_comment_execution": "Array of agent names for plan execution. If one agent, used for all plans. If multiple, orchestrator picks the best match based on task content and agent descriptions.",
+  "_comment_verification": "Single agent name for post-wave verification. Optional. When omitted, no verification wave is spawned.",
+  "_comment_defaults": "When the agents key is empty ({}) or missing entirely, all routing falls back to default agent types (general-purpose).",
+  "agents": {
+    "execution": ["org:agent-name-1", "org:agent-name-2"],
+    "verification": "org:verifier-agent"
+  }
+}

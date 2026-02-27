@@ -225,7 +225,12 @@ No segmentation benefit - execute entirely in main
 ```
 1. Run init_agent_tracking step first (see step below)
 
-2. Use Task tool with subagent_type="gsd-executor" and model="{executor_model}":
+# Resolve agent for this plan using priority chain:
+# 1. User prompt override → use specified agent
+# 2. Config agents.execution[] → one: use it; multiple: orchestrator picks based on task content
+# 3. Fallback → "gsd-executor"
+
+2. Use Task tool with subagent_type={resolved_agent} and model="{executor_model}":
 
    Prompt: "Execute plan at .planning/phases/{phase}-{plan}-PLAN.md
 
@@ -377,7 +382,12 @@ For Pattern A (fully autonomous) and Pattern C (decision-dependent), skip this s
 
    B. If routing = Subagent:
       ```
-      Spawn Task tool with subagent_type="gsd-executor" and model="{executor_model}":
+      # Resolve agent for this plan using priority chain:
+      # 1. User prompt override → use specified agent
+      # 2. Config agents.execution[] → one: use it; multiple: orchestrator picks based on task content
+      # 3. Fallback → "gsd-executor"
+
+      Spawn Task tool with subagent_type={resolved_agent} and model="{executor_model}":
 
       Prompt: "Execute tasks [task numbers/names] from plan at [plan path].
 

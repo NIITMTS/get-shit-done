@@ -335,6 +335,51 @@ questions: [
 ]
 ```
 
+**Round 3 — Agent pool:**
+
+Use AskUserQuestion:
+
+```
+questions: [
+  {
+    header: "Agent Pool",
+    question: "Configure specialized agents for this project?",
+    multiSelect: false,
+    options: [
+      { label: "Skip (use defaults)", description: "No agents configured, all routing uses default agent types (Recommended for most projects)" },
+      { label: "Configure agents", description: "Set up execution and verification agents" }
+    ]
+  }
+]
+```
+
+**If "Skip (use defaults)":** Set agents to empty object `{}`. Proceed to config write.
+
+**If "Configure agents":** Ask follow-up questions inline (freeform, NOT AskUserQuestion):
+
+1. "Execution agents (comma-separated agent names, or 'skip'):"
+   - If user provides names: split by comma, trim whitespace, store as array in `agents.execution`
+   - If user says "skip": omit `execution` key from agents object
+
+2. "Verification agent? (agent name, or 'skip'):"
+   - If user provides a name: store as string in `agents.verification`
+   - If user says "skip": omit `verification` key from agents object
+
+Build agents object from responses:
+```json
+// If both configured:
+{ "execution": ["org:agent-1", "org:agent-2"], "verification": "org:verifier" }
+
+// If only execution:
+{ "execution": ["org:agent-1"] }
+
+// If only verification:
+{ "verification": "org:verifier" }
+
+// If both skipped or "Skip (use defaults)" chosen:
+{}
+```
+
 Create `.planning/config.json` with all settings:
 
 ```json
@@ -348,9 +393,12 @@ Create `.planning/config.json` with all settings:
     "research": true|false,
     "plan_check": true|false,
     "verifier": true|false
-  }
+  },
+  "agents": {}
 }
 ```
+
+The `agents` key is always present. It is an empty object `{}` when "Skip (use defaults)" was chosen, or populated with `execution` and/or `verification` keys when agents were configured.
 
 **If commit_docs = No:**
 - Set `commit_docs: false` in config.json
@@ -370,6 +418,7 @@ Mode: [chosen mode]
 Depth: [chosen depth]
 Parallelization: [enabled/disabled]
 Workflow agents: research=[on/off], plan_check=[on/off], verifier=[on/off]
+Agent pool: [configured/defaults]
 EOF
 )"
 ```
@@ -947,6 +996,10 @@ Present completion with next steps:
 
 **[N] phases** | **[X] requirements** | Ready to build ✓
 
+[If agents object is non-empty, show:]
+**Agent pool:** execution=[agent list], verification=[agent name]
+[Otherwise, omit this line]
+
 ───────────────────────────────────────────────────────────────
 
 ## ▶ Next Up
@@ -991,6 +1044,7 @@ Present completion with next steps:
 - [ ] Deep questioning completed (threads followed, not rushed)
 - [ ] PROJECT.md captures full context → **committed**
 - [ ] config.json has workflow mode, depth, parallelization → **committed**
+- [ ] config.json has agents configuration (empty or populated)
 - [ ] Research completed (if selected) — 4 parallel agents spawned → **committed**
 - [ ] Requirements gathered (from research or conversation)
 - [ ] User scoped each category (v1/v2/out of scope)

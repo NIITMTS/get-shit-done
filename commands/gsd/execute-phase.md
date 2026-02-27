@@ -25,6 +25,7 @@ Context budget: ~15% orchestrator, 100% fresh per subagent.
 <execution_context>
 @~/.claude/get-shit-done/references/ui-brand.md
 @~/.claude/get-shit-done/workflows/execute-phase.md
+@~/.claude/get-shit-done/templates/verify-prompt.md
 </execution_context>
 
 <context>
@@ -35,6 +36,7 @@ Phase: $ARGUMENTS
 
 @.planning/ROADMAP.md
 @.planning/STATE.md
+@.planning/config.json
 </context>
 
 <process>
@@ -266,9 +268,14 @@ STATE_CONTENT=$(cat .planning/STATE.md)
 Spawn all plans in a wave with a single message containing multiple Task calls, with inlined content:
 
 ```
-Task(prompt="Execute plan at {plan_01_path}\n\nPlan:\n{plan_01_content}\n\nProject state:\n{state_content}", subagent_type="gsd-executor", model="{executor_model}")
-Task(prompt="Execute plan at {plan_02_path}\n\nPlan:\n{plan_02_content}\n\nProject state:\n{state_content}", subagent_type="gsd-executor", model="{executor_model}")
-Task(prompt="Execute plan at {plan_03_path}\n\nPlan:\n{plan_03_content}\n\nProject state:\n{state_content}", subagent_type="gsd-executor", model="{executor_model}")
+# For each plan in wave, resolve agent type first:
+agent_01 = resolve_agent(plan_01, config, user_override)  # defaults to "gsd-executor"
+agent_02 = resolve_agent(plan_02, config, user_override)
+agent_03 = resolve_agent(plan_03, config, user_override)
+
+Task(prompt="Execute plan at {plan_01_path}\n\nPlan:\n{plan_01_content}\n\nProject state:\n{state_content}", subagent_type=agent_01, model="{executor_model}")
+Task(prompt="Execute plan at {plan_02_path}\n\nPlan:\n{plan_02_content}\n\nProject state:\n{state_content}", subagent_type=agent_02, model="{executor_model}")
+Task(prompt="Execute plan at {plan_03_path}\n\nPlan:\n{plan_03_content}\n\nProject state:\n{state_content}", subagent_type=agent_03, model="{executor_model}")
 ```
 
 All three run in parallel. Task tool blocks until all complete.
@@ -284,6 +291,33 @@ Plans with `autonomous: false` have checkpoints. The execute-phase.md workflow h
 
 See `@~/.claude/get-shit-done/workflows/execute-phase.md` step `checkpoint_handling` for complete details.
 </checkpoint_handling>
+
+<agent_routing>
+For each Task call, resolve agent type using this priority chain:
+
+1. **User prompt override:** If user specified an agent in the invocation (e.g., "use typescript-pro"), use it for all plans
+2. **Config pool:** Read `.planning/config.json` → `agents.execution[]`:
+   - One agent in list: use it for all plans
+   - Multiple agents in list: orchestrator picks the most appropriate agent based on task content and agent descriptions
+   - Empty or missing: fallback
+3. **Fallback:** "gsd-executor" (current default)
+
+Store resolved agent per plan before spawning wave.
+
+The resolved agent MUST be used for both initial spawn AND any continuation spawns for the same plan.
+</agent_routing>
+
+<verification_wave>
+**After each execution wave completes (optional):**
+
+If `agents.verification` is configured in config.json:
+1. Fill verify-prompt template with wave results
+2. Spawn: `Task(prompt=filled_verify_template, subagent_type=config.agents.verification)`
+3. If PASS: proceed to next wave
+4. If FAIL: report issues to user, ask: "Fix and retry?" or "Continue anyway?" or "Stop execution?"
+
+If `agents.verification` is NOT configured: skip verification, proceed to next wave (current behavior).
+</verification_wave>
 
 <deviation_rules>
 During execution, handle discoveries automatically:
