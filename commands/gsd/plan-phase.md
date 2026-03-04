@@ -40,6 +40,117 @@ Phase number: $ARGUMENTS (optional - auto-detects next unplanned phase if not pr
 Normalize phase input in step 2 before any directory lookups.
 </context>
 
+<agent_routing>
+For each agent spawn, resolve agent type using this priority chain:
+
+### Researcher
+1. **User prompt override:** If user specified an agent for research (e.g., "use python-pro for research"), use it
+2. **Config:** Read `.planning/config.json` → `agents.research` (string — single agent name)
+3. **Fallback:** `"gsd-phase-researcher"`
+
+### Planner
+1. **User prompt override:** If user specified an agent for planning (e.g., "use typescript-pro for planning"), use it
+2. **Config:** Read `.planning/config.json` → `agents.planning` (string — single agent name)
+3. **Fallback:** `"gsd-planner"`
+
+### Checker
+1. **User prompt override:** If user specified an agent for plan checking, use it
+2. **Config:** Read `.planning/config.json` → `agents.plan_check` (string — single agent name)
+3. **Fallback:** `"gsd-plan-checker"`
+
+All config values are strings (single agent name per role). No arrays, no multi-agent selection.
+
+### Consistency rule
+
+The resolved planner agent is stored once (step 8) and reused for revision loops (step 12). Same agent creates plans and handles revisions. The resolved checker agent is stored once (step 10) and reused for re-verification in step 12. This ensures custom agents that created or verified plans also handle their revisions.
+
+### Workflow toggle interaction
+
+Agent resolution only happens when the corresponding workflow toggle is enabled:
+- If `workflow.research: false`, skip research entirely — `agents.research` is irrelevant (silently ignored).
+- If `workflow.plan_check: false`, skip verification entirely — `agents.plan_check` is irrelevant (silently ignored).
+- The `planning` role has no workflow toggle — planner always runs.
+
+### Prompt construction logic
+
+- **Built-in (fallback):** Use named agent type directly (e.g., `subagent_type="gsd-planner"`). Claude Code loads agent def automatically. Prompt = context only. No "First, read ~/.claude/agents/..." prefix needed.
+- **Custom:** Use `subagent_type=resolved_agent` (the config/override value). Prompt = context + appended `<return_protocol>` block.
+
+**NOTE:** The default (no custom agents) path now uses named agent types (e.g., `subagent_type="gsd-planner"`) instead of `subagent_type="general-purpose"` with a manual read prefix. This is functionally equivalent but changes the agent loading mechanism for all projects.
+
+### Return protocol blocks (custom agents only)
+
+Return protocol injection is new to the planning pipeline. The execution pipeline does zero return_protocol injection — execution agents write files to disk. Planning agents return signal headers in response text.
+
+**Researcher return_protocol:**
+
+```xml
+<return_protocol>
+You MUST end your final response with one of these signal headers:
+
+On success:
+## RESEARCH COMPLETE
+**Phase:** {phase}
+**Confidence:** [HIGH/MEDIUM/LOW]
+### Key Findings
+### File Created
+
+On failure:
+## RESEARCH BLOCKED
+**Blocked by:** [reason]
+### Attempted
+### Options
+### Awaiting
+</return_protocol>
+```
+
+**Planner return_protocol:**
+
+```xml
+<return_protocol>
+You MUST end your final response with one of these signal headers:
+
+## PLANNING COMPLETE
+**Phase:** {phase-name}
+**Plans:** {N} plan(s) in {M} wave(s)
+### Wave Structure
+### Plans Created
+
+## CHECKPOINT REACHED
+**Type:** [decision needed]
+**Plan:** {phase-plan}
+
+## PLANNING INCONCLUSIVE
+**Attempted:** [what was tried]
+### Blockers
+
+Do NOT return ## REVISION COMPLETE or ## GAP CLOSURE PLANS CREATED — the orchestrator does not parse these signals.
+</return_protocol>
+```
+
+**Checker return_protocol:**
+
+```xml
+<return_protocol>
+You MUST end your final response with one of these signal headers:
+
+## VERIFICATION PASSED
+**Phase:** {phase-name}
+**Plans verified:** {N}
+### Coverage Summary
+### Plan Summary
+
+## ISSUES FOUND
+**Phase:** {phase-name}
+**Issues:** {X} blocker(s), {Y} warning(s), {Z} info
+### Blockers
+### Warnings
+### Structured Issues
+(YAML block with plan, dimension, severity, description, fix_hint per issue)
+</return_protocol>
+```
+</agent_routing>
+
 <process>
 
 ## 1. Validate Environment and Resolve Model Profile
@@ -222,9 +333,22 @@ Write research findings to: {phase_dir}/{phase}-RESEARCH.md
 ```
 
 ```
+# Resolve researcher agent (from <agent_routing> resolution chain)
+# Priority: user_override > config.agents.research > "gsd-phase-researcher"
+resolved_researcher = resolve_agent("research", config, user_override)
+
+# If custom agent (resolved_researcher != "gsd-phase-researcher"):
 Task(
-  prompt="First, read ~/.claude/agents/gsd-phase-researcher.md for your role and instructions.\n\n" + research_prompt,
-  subagent_type="general-purpose",
+  prompt=research_prompt + "\n\n" + researcher_return_protocol,
+  subagent_type=resolved_researcher,
+  model="{researcher_model}",
+  description="Research Phase {phase}"
+)
+
+# If built-in (fallback):
+Task(
+  prompt=research_prompt,
+  subagent_type="gsd-phase-researcher",
   model="{researcher_model}",
   description="Research Phase {phase}"
 )
@@ -337,9 +461,23 @@ Before returning PLANNING COMPLETE:
 ```
 
 ```
+# Resolve planner agent (from <agent_routing> resolution chain)
+# Priority: user_override > config.agents.planning > "gsd-planner"
+resolved_planner = resolve_agent("planning", config, user_override)
+# IMPORTANT: Store resolved_planner — same agent handles revisions in step 12
+
+# If custom agent (resolved_planner != "gsd-planner"):
 Task(
-  prompt="First, read ~/.claude/agents/gsd-planner.md for your role and instructions.\n\n" + filled_prompt,
-  subagent_type="general-purpose",
+  prompt=filled_prompt + "\n\n" + planner_return_protocol,
+  subagent_type=resolved_planner,
+  model="{planner_model}",
+  description="Plan Phase {phase}"
+)
+
+# If built-in (fallback):
+Task(
+  prompt=filled_prompt,
+  subagent_type="gsd-planner",
   model="{planner_model}",
   description="Plan Phase {phase}"
 )
@@ -420,6 +558,20 @@ Return one of:
 ```
 
 ```
+# Resolve checker agent (from <agent_routing> resolution chain)
+# Priority: user_override > config.agents.plan_check > "gsd-plan-checker"
+resolved_checker = resolve_agent("plan_check", config, user_override)
+# IMPORTANT: Store resolved_checker — same agent used for re-verification in step 12
+
+# If custom agent (resolved_checker != "gsd-plan-checker"):
+Task(
+  prompt=checker_prompt + "\n\n" + checker_return_protocol,
+  subagent_type=resolved_checker,
+  model="{checker_model}",
+  description="Verify Phase {phase} plans"
+)
+
+# If built-in (fallback):
 Task(
   prompt=checker_prompt,
   subagent_type="gsd-plan-checker",
@@ -486,15 +638,45 @@ Return what changed.
 ```
 
 ```
+# CONSISTENCY RULE: Use the SAME resolved_planner from step 8
+# If custom agent (resolved_planner != "gsd-planner"):
 Task(
-  prompt="First, read ~/.claude/agents/gsd-planner.md for your role and instructions.\n\n" + revision_prompt,
-  subagent_type="general-purpose",
+  prompt=revision_prompt + "\n\n" + planner_return_protocol,
+  subagent_type=resolved_planner,
+  model="{planner_model}",
+  description="Revise Phase {phase} plans"
+)
+
+# If built-in (fallback):
+Task(
+  prompt=revision_prompt,
+  subagent_type="gsd-planner",
   model="{planner_model}",
   description="Revise Phase {phase} plans"
 )
 ```
 
-- After planner returns → spawn checker again (step 10)
+- After planner returns → re-verify with checker:
+
+```
+# Re-verification: Use the SAME resolved_checker from step 10
+# If custom agent (resolved_checker != "gsd-plan-checker"):
+Task(
+  prompt=checker_prompt + "\n\n" + checker_return_protocol,
+  subagent_type=resolved_checker,
+  model="{checker_model}",
+  description="Re-verify Phase {phase} plans"
+)
+
+# If built-in (fallback):
+Task(
+  prompt=checker_prompt,
+  subagent_type="gsd-plan-checker",
+  model="{checker_model}",
+  description="Re-verify Phase {phase} plans"
+)
+```
+
 - Increment iteration_count
 
 **If iteration_count >= 3:**

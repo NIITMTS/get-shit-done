@@ -2,9 +2,15 @@
   "_comment": "Example of the agents section when fully populated. Copy the 'agents' key into your .planning/config.json.",
   "_comment_execution": "Array of agent names for plan execution. If one agent, used for all plans. If multiple, orchestrator picks the best match based on task content and agent descriptions.",
   "_comment_verification": "Single agent name for post-wave verification. Optional. When omitted, no verification wave is spawned.",
-  "_comment_defaults": "When the agents key is empty ({}) or missing entirely, all routing falls back to default agent types (general-purpose).",
+  "_comment_defaults": "When the agents key is empty ({}) or missing entirely, all routing falls back to built-in GSD agents (gsd-executor, gsd-verifier, gsd-phase-researcher, gsd-planner, gsd-plan-checker).",
+  "_comment_planning": "Single agent name for plan creation and revision. Same agent handles revisions after checker feedback. Optional. When omitted, falls back to built-in gsd-planner.",
+  "_comment_research": "Single agent name for phase research before planning. Optional. When omitted, falls back to built-in gsd-phase-researcher.",
+  "_comment_plan_check": "Single agent name for plan verification before execution. Optional. When omitted, falls back to built-in gsd-plan-checker.",
   "agents": {
     "execution": ["org:agent-name-1", "org:agent-name-2"],
-    "verification": "org:verifier-agent"
+    "verification": "org:verifier-agent",
+    "planning": "org:custom-planner",
+    "research": "org:custom-researcher",
+    "plan_check": "org:custom-checker"
   }
 }

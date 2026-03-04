@@ -347,7 +347,7 @@ questions: [
     multiSelect: false,
     options: [
       { label: "Skip (use defaults)", description: "No agents configured, all routing uses default agent types (Recommended for most projects)" },
-      { label: "Configure agents", description: "Set up execution and verification agents" }
+      { label: "Configure agents", description: "Set up execution, verification, planning, research, and plan checker agents" }
     ]
   }
 ]
@@ -365,10 +365,34 @@ questions: [
    - If user provides a name: store as string in `agents.verification`
    - If user says "skip": omit `verification` key from agents object
 
+3. "Planning agent? (agent name, or 'skip'):"
+   - If user provides a name: store as string in `agents.planning`
+   - If user says "skip": omit `planning` key from agents object
+
+4. "Research agent? (agent name, or 'skip'):"
+   - If user provides a name: store as string in `agents.research`
+   - If user says "skip": omit `research` key from agents object
+
+5. "Plan checker agent? (agent name, or 'skip'):"
+   - If user provides a name: store as string in `agents.plan_check`
+   - If user says "skip": omit `plan_check` key from agents object
+
 Build agents object from responses:
 ```json
-// If both configured:
+// If all configured:
+{
+  "execution": ["org:agent-1", "org:agent-2"],
+  "verification": "org:verifier",
+  "planning": "org:custom-planner",
+  "research": "org:custom-researcher",
+  "plan_check": "org:custom-checker"
+}
+
+// If only execution and verification:
 { "execution": ["org:agent-1", "org:agent-2"], "verification": "org:verifier" }
+
+// If only planning configured:
+{ "planning": "org:custom-planner" }
 
 // If only execution:
 { "execution": ["org:agent-1"] }
@@ -376,7 +400,7 @@ Build agents object from responses:
 // If only verification:
 { "verification": "org:verifier" }
 
-// If both skipped or "Skip (use defaults)" chosen:
+// If all skipped or "Skip (use defaults)" chosen:
 {}
 ```
 
@@ -398,7 +422,7 @@ Create `.planning/config.json` with all settings:
 }
 ```
 
-The `agents` key is always present. It is an empty object `{}` when "Skip (use defaults)" was chosen, or populated with `execution` and/or `verification` keys when agents were configured.
+The `agents` key is always present. It is an empty object `{}` when "Skip (use defaults)" was chosen, or populated with any combination of `execution`, `verification`, `planning`, `research`, and/or `plan_check` keys when agents were configured.
 
 **If commit_docs = No:**
 - Set `commit_docs: false` in config.json
@@ -996,9 +1020,9 @@ Present completion with next steps:
 
 **[N] phases** | **[X] requirements** | Ready to build ✓
 
-[If agents object is non-empty, show:]
-**Agent pool:** execution=[agent list], verification=[agent name]
-[Otherwise, omit this line]
+[If agents object is non-empty, show configured keys only:]
+**Agent pool:** execution=[list], verification=[name], planning=[name], research=[name], plan_check=[name]
+[Only show keys that are actually configured (non-empty). Omit this line entirely if agents object is empty.]
 
 ───────────────────────────────────────────────────────────────
 

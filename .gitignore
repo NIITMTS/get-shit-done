@@ -14,3 +14,5 @@ hooks/dist/
 # Animation assets
 animation/
 *.gif
+
+/claude-backup-files/
